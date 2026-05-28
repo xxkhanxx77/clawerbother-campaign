@@ -1,0 +1,13 @@
+{
+  "query": "#renaiss",
+  "date_from": "28-05-2026",
+  "date_to": "20-05-2026",
+  "number": 1000,
+  "headless": true,
+  "max_pages": 8,
+  "wait_seconds": 3,
+  "between_days_seconds": 5,
+  "navigation_retries": 3,
+  "retry_delay_seconds": 60,
+  "output_dir": "data"
+}
