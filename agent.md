@@ -14,19 +14,22 @@ Do not treat older BrightData or `ntscraper` examples as active project code.
 
 ## Entry Points
 
-Default shortcut:
+Default headless shortcut (rolling 7-day window, clean profile):
 
 ```bash
-./scripts/run_renaiss.sh
+./scripts/run_renaiss_headless.sh
 ```
 
-Main module:
+Main module (replace dates as needed):
 
 ```bash
-python -m src.renaiss_playwright_scraper \
+TODAY="$(date +%d-%m-%Y)"
+SEVEN_DAYS_AGO="$(date -v-7d +%d-%m-%Y)"
+./.venv/bin/python -m src.renaiss_playwright_scraper \
   --query "#renaiss" \
-  --date-from 28-05-2026 \
-  --date-to 20-05-2026
+  --date-from "$TODAY" \
+  --date-to "$SEVEN_DAYS_AGO" \
+  --profile-dir output/playwright-profile-clean
 ```
 
 Config run:
@@ -43,16 +46,18 @@ python -m src.renaiss_playwright_scraper --config scraper_config.json
 4. `build_search_url` builds a base Nitter search URL from `--instance` and `--query`.
 5. `parse_input_date` accepts `DD-MM-YYYY`, `YYYY-MM-DD`, `DD/MM/YYYY`, or `YYYY/MM/DD`.
 6. `inclusive_dates` creates all dates between `--date-from` and `--date-to`.
-7. `build_date_search_url` adds daily `since` and `until` filters.
+7. `build_date_search_url` adds daily `since` and `until` filters, always enforcing `/search` path.
 8. `scrape` launches persistent Chrome through Playwright.
 9. `goto_page` handles navigation retries and HTTP 429 waits.
 10. `wait_for_page` waits for tweet cards, error panel, or body.
-11. `extract_tweets` reads tweet data from Nitter DOM nodes.
-12. `normalize_tweet` converts raw items into CSV rows.
-13. `load_existing_outputs` loads old CSV/JSONL rows unless `--fresh` is set.
-14. `item_key` dedupes by tweet ID, URL, Nitter URL, or description fallback.
-15. `save_checkpoint` writes CSV/JSONL after each page with new rows.
-16. `find_next_page_url` follows Nitter "Load more" links up to `--max-pages`.
+11. `click_load_newest` clicks the "Load newest" button if the first page loads with no tweets.
+12. `extract_tweets` reads tweet data from Nitter DOM nodes.
+13. `normalize_tweet` converts raw items into CSV rows (includes `score` field).
+14. `load_existing_outputs` loads old CSV/JSONL rows unless `--fresh` is set; backfills missing `score`.
+15. `item_key` dedupes by tweet ID, URL, Nitter URL, or description fallback.
+16. `save_checkpoint` writes CSV/JSONL after each page with new rows.
+17. `find_next_page_url` follows Nitter "Load more" links up to `--max-pages`; enforces `/search` path.
+18. `print_summary` prints a per-day table of matched vs saved items after the run.
 
 ## Browser Behavior
 
@@ -61,20 +66,22 @@ Default is hidden/headless mode.
 Use visible Chrome only when needed:
 
 ```bash
-python -m src.renaiss_playwright_scraper \
+./.venv/bin/python -m src.renaiss_playwright_scraper \
   --query "#renaiss" \
-  --date-from 28-05-2026 \
-  --date-to 20-05-2026 \
+  --date-from 31-05-2026 \
+  --date-to 27-05-2026 \
+  --profile-dir output/playwright-profile-clean \
   --headed
 ```
 
 Manual verification mode should be headed:
 
 ```bash
-python -m src.renaiss_playwright_scraper \
+./.venv/bin/python -m src.renaiss_playwright_scraper \
   --query "#renaiss" \
-  --date-from 28-05-2026 \
-  --date-to 20-05-2026 \
+  --date-from 31-05-2026 \
+  --date-to 27-05-2026 \
+  --profile-dir output/playwright-profile-clean \
   --headed \
   --manual
 ```
@@ -100,8 +107,10 @@ CSV fields are defined in `FIELDNAMES`:
 ```text
 id, url, nitter_url, description, author_name, author_username,
 created_at, replies, reposts, quotes, likes, views, hashtags,
-raw_stats, pictures
+raw_stats, pictures, score
 ```
+
+`score` is populated from raw item data if present; otherwise it is an empty string.
 
 ## Important Defaults
 
@@ -109,7 +118,7 @@ raw_stats, pictures
 - `query`: `#renaiss`
 - `number`: `1000`
 - `output_dir`: `data`
-- `profile_dir`: `output/playwright-profile`
+- `profile_dir`: `output/playwright-profile` (default scripts override this to `output/playwright-profile-clean`)
 - `debug_dir`: `output/playwright`
 - `headless`: `true`
 - `max_pages`: `8`
@@ -125,10 +134,13 @@ HTTP 429 means the Nitter instance is rate-limiting requests. It is expected beh
 Use slower retries:
 
 ```bash
-python -m src.renaiss_playwright_scraper \
+TODAY="$(date +%d-%m-%Y)"
+SEVEN_DAYS_AGO="$(date -v-7d +%d-%m-%Y)"
+./.venv/bin/python -m src.renaiss_playwright_scraper \
   --query "#renaiss" \
-  --date-from 28-05-2026 \
-  --date-to 20-05-2026 \
+  --date-from "$TODAY" \
+  --date-to "$SEVEN_DAYS_AGO" \
+  --profile-dir output/playwright-profile-clean \
   --between-days-seconds 30 \
   --navigation-retries 5 \
   --retry-delay-seconds 120

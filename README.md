@@ -28,19 +28,22 @@ The script uses your installed Google Chrome:
 
 ## Run With Script
 
-Use this shortcut for the default scrape:
+Use this shortcut for the default headless scrape:
 
 ```bash
-./scripts/run_renaiss.sh
+./scripts/run_renaiss_headless.sh
 ```
 
-That runs:
+That script runs a rolling 7-day scrape from today back to 7 days ago in headless mode:
 
 ```bash
-python -m src.renaiss_playwright_scraper \
+TODAY="$(date +%d-%m-%Y)"
+SEVEN_DAYS_AGO="$(date -v-7d +%d-%m-%Y)"
+./.venv/bin/python -m src.renaiss_playwright_scraper \
   --query "#renaiss" \
-  --date-from 28-05-2026 \
-  --date-to 20-05-2026
+  --date-from "$TODAY" \
+  --date-to "$SEVEN_DAYS_AGO" \
+  --profile-dir output/playwright-profile-clean
 ```
 
 ## Run Manually
@@ -48,19 +51,23 @@ python -m src.renaiss_playwright_scraper \
 After activating `.venv`, you can also run the Python module directly:
 
 ```bash
-python -m src.renaiss_playwright_scraper \
+./.venv/bin/python -m src.renaiss_playwright_scraper \
   --query "#renaiss" \
-  --date-from 28-05-2026 \
-  --date-to 20-05-2026
+  --date-from 31-05-2026 \
+  --date-to 27-05-2026 \
+  --profile-dir output/playwright-profile-clean \
+  --headed
 ```
 
 To scrape another tag:
 
 ```bash
-python -m src.renaiss_playwright_scraper \
+./.venv/bin/python -m src.renaiss_playwright_scraper \
   --query "#renaissTH" \
-  --date-from 28-05-2026 \
-  --date-to 20-05-2026
+  --date-from 31-05-2026 \
+  --date-to 27-05-2026 \
+  --profile-dir output/playwright-profile-clean \
+  --headed
 ```
 
 ## Output
@@ -81,14 +88,29 @@ data/renaissth_posts.jsonl
 
 ## Common Options
 
-Show the browser window:
+Show the browser window and use a fresh profile:
 
 ```bash
-python -m src.renaiss_playwright_scraper \
+TODAY="$(date +%d-%m-%Y)"
+SEVEN_DAYS_AGO="$(date -v-7d +%d-%m-%Y)"
+./.venv/bin/python -m src.renaiss_playwright_scraper \
   --query "#renaiss" \
-  --date-from 28-05-2026 \
-  --date-to 20-05-2026 \
+  --date-from "$TODAY" \
+  --date-to "$SEVEN_DAYS_AGO" \
+  --profile-dir output/playwright-profile-clean \
   --headed
+```
+
+Run the same scrape in headless mode:
+
+```bash
+TODAY="$(date +%d-%m-%Y)"
+SEVEN_DAYS_AGO="$(date -v-7d +%d-%m-%Y)"
+./.venv/bin/python -m src.renaiss_playwright_scraper \
+  --query "#renaiss" \
+  --date-from "$TODAY" \
+  --date-to "$SEVEN_DAYS_AGO" \
+  --profile-dir output/playwright-profile-clean
 ```
 
 Slow down when Nitter returns HTTP 429:
@@ -96,8 +118,8 @@ Slow down when Nitter returns HTTP 429:
 ```bash
 python -m src.renaiss_playwright_scraper \
   --query "#renaiss" \
-  --date-from 28-05-2026 \
-  --date-to 20-05-2026 \
+  --date-from 31-05-2026 \
+  --date-to 27-05-2026 \
   --between-days-seconds 30 \
   --navigation-retries 5 \
   --retry-delay-seconds 120
@@ -108,8 +130,8 @@ Overwrite existing output for the query:
 ```bash
 python -m src.renaiss_playwright_scraper \
   --query "#renaiss" \
-  --date-from 28-05-2026 \
-  --date-to 20-05-2026 \
+  --date-from 31-05-2026 \
+  --date-to 27-05-2026 \
   --fresh
 ```
 
@@ -119,8 +141,8 @@ Use another Nitter instance:
 python -m src.renaiss_playwright_scraper \
   --instance "https://nitter.net" \
   --query "#renaiss" \
-  --date-from 28-05-2026 \
-  --date-to 20-05-2026
+  --date-from 31-05-2026 \
+  --date-to 27-05-2026
 ```
 
 ## Config File

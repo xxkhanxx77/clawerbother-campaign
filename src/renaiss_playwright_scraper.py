@@ -36,6 +36,7 @@ FIELDNAMES = [
     "hashtags",
     "raw_stats",
     "pictures",
+    "score",
 ]
 
 def parse_args() -> argparse.Namespace:
@@ -283,6 +284,7 @@ def normalize_tweet(raw: dict[str, Any]) -> dict[str, Any]:
         "hashtags": ",".join(tag.lstrip("#") for tag in hashtags),
         "raw_stats": json.dumps(raw_stats, ensure_ascii=False),
         "pictures": ",".join(str(item) for item in pictures),
+        "score": raw.get("score", ""),
     }
 
 
@@ -343,7 +345,7 @@ def build_date_search_url(base_url: str, day: date) -> str:
     query["since"] = [day.isoformat()]
     query["until"] = [(day + timedelta(days=1)).isoformat()]
     query.setdefault("min_faves", [""])
-    return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
+    return urlunparse(parsed._replace(path="/search", query=urlencode(query, doseq=True)))
 
 
 def build_search_targets(args: argparse.Namespace) -> list[tuple[str, str, date | None, date | None]]:
@@ -369,7 +371,9 @@ def load_existing_outputs(output_dir: Path, output_base: str) -> tuple[list[dict
     if csv_path.exists():
         with csv_path.open("r", encoding="utf-8-sig", newline="") as file:
             for row in csv.DictReader(file):
-                rows.append(dict(row))
+                row_dict = dict(row)
+                row_dict.setdefault("score", "")
+                rows.append(row_dict)
                 key = str(row.get("id") or row.get("url") or "")
                 if key:
                     seen.add(key)
@@ -465,7 +469,14 @@ def find_next_page_url(page: Page) -> str:
     except PlaywrightError as exc:
         print(f"Next page warning: {exc}", file=sys.stderr, flush=True)
         return ""
-    return urljoin(page.url, href) if href else ""
+    if not href:
+        return ""
+    absolute = urljoin(page.url, href)
+    if "cursor=" not in absolute:
+        parsed = urlparse(absolute)
+        if parsed.path != "/search":
+            absolute = urlunparse(parsed._replace(path="/search"))
+    return absolute
 
 
 def save_debug(page: Page, debug_dir: Path) -> None:
@@ -483,6 +494,8 @@ def save_outputs(output_dir: Path, output_base: str, rows: list[dict[str, Any]],
     rows = sorted(rows, key=lambda row: parse_created_datetime(row.get("created_at")), reverse=True)
     raw_items = sorted(raw_items, key=lambda item: parse_created_datetime(item.get("created_at")), reverse=True)
 
+    for row in rows:
+        row.setdefault("score", "")
     with csv_path.open("w", encoding="utf-8-sig", newline="") as file:
         writer = csv.DictWriter(file, fieldnames=FIELDNAMES)
         writer.writeheader()
@@ -528,6 +541,20 @@ def wait_for_page(page: Page, seconds: float) -> bool:
         return False
 
 
+def click_load_newest(page: Page) -> bool:
+    try:
+        candidates = page.locator("text=Load newest")
+        if candidates.count() == 0:
+            return False
+        candidates.first.click(timeout=10_000)
+        page.wait_for_load_state("domcontentloaded", timeout=30_000)
+        page.wait_for_timeout(1_000)
+        return True
+    except PlaywrightError as exc:
+        print(f"Load newest warning: {exc}", file=sys.stderr, flush=True)
+        return False
+
+
 def goto_page(page: Page, url: str, retries: int, retry_delay_seconds: float) -> bool:
     for attempt in range(1, retries + 2):
         try:
@@ -548,7 +575,11 @@ def print_progress(label: str, page_number: int, url: str, total: int) -> None:
     print(f"{prefix}page {page_number}: {parsed.netloc}{parsed.path} -> {total} new saved", flush=True)
 
 
-def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int]:
+def format_day_label(day: date | None) -> str:
+    return day.isoformat() if day else "unknown"
+
+
+def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[str, Any]], int, list[tuple[str, int, int]]]:
     chrome_path = Path(args.chrome_path)
     if not chrome_path.exists():
         raise FileNotFoundError(f"Chrome executable not found: {chrome_path}")
@@ -567,6 +598,7 @@ def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
     default_oldest_date = min(target_dates) if target_dates else None
     oldest_date = parse_input_date(args.oldest_date) if args.oldest_date else default_oldest_date
     reached_older_than_oldest_date = False
+    per_day_summary: dict[str, dict[str, int]] = {}
 
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
@@ -598,6 +630,19 @@ def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
                     save_debug(page, Path(args.debug_dir))
                     break
 
+                if not page_items:
+                    loaded_newest = click_load_newest(page)
+                    if loaded_newest:
+                        if not wait_for_page(page, 1):
+                            save_debug(page, Path(args.debug_dir))
+                            break
+                        try:
+                            page_items = extract_tweets(page)
+                        except PlaywrightError as exc:
+                            print(f"Extract warning: {exc}", file=sys.stderr, flush=True)
+                            save_debug(page, Path(args.debug_dir))
+                            break
+
                 if not page_items and args.manual and not args.headless:
                     print(
                         "No tweets found yet. If Chrome shows a verification page, solve it now. "
@@ -619,6 +664,8 @@ def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
                         break
 
                 page_new_rows_before = new_rows_count
+                page_items_total = len(page_items)
+                page_items_matched = 0
                 for item in page_items:
                     created_date = parse_created_date(item.get("created_at"))
                     if oldest_date and created_date and created_date < oldest_date:
@@ -627,6 +674,7 @@ def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
                     if target_start and target_end and created_date and not (target_start <= created_date <= target_end):
                         continue
 
+                    page_items_matched += 1
                     key = item_key(item)
                     if not key or key in seen:
                         continue
@@ -636,6 +684,12 @@ def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
                     new_rows_count += 1
                     if new_rows_count >= args.number:
                         break
+
+                if label != "single" and target_start and target_end:
+                    target_label = format_day_label(target_start)
+                    summary = per_day_summary.setdefault(target_label, {"matched": 0, "saved": 0})
+                    summary["matched"] += page_items_matched
+                    summary["saved"] += new_rows_count - page_new_rows_before
 
                 print_progress(label, page_number, page.url, new_rows_count)
                 if new_rows_count > page_new_rows_before:
@@ -660,7 +714,17 @@ def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
         except PlaywrightError:
             pass
 
-    return rows, raw_items, new_rows_count
+    return rows, raw_items, new_rows_count, per_day_summary
+
+
+def print_summary(per_day_summary: dict[str, dict[str, int]]) -> None:
+    if not per_day_summary:
+        return
+    print("\nPER-DAY SUMMARY")
+    for day_label in sorted(per_day_summary.keys(), reverse=True):
+        summary = per_day_summary[day_label]
+        print(f"  {day_label}: {summary['matched']} matched, {summary['saved']} saved")
+    print()
 
 
 def print_preview(rows: list[dict[str, Any]], new_rows_count: int) -> None:
@@ -681,7 +745,7 @@ def print_preview(rows: list[dict[str, Any]], new_rows_count: int) -> None:
 def main() -> int:
     args = resolve_args(parse_args())
     try:
-        rows, raw_items, new_rows_count = scrape(args)
+        rows, raw_items, new_rows_count, per_day_summary = scrape(args)
         if not rows:
             print(
                 "No tweets found. Check output/playwright/nitter_debug.png. "
@@ -689,6 +753,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
+        print_summary(per_day_summary)
         print_preview(rows, new_rows_count)
         save_outputs(Path(args.output_dir), args.output_base, rows, raw_items)
         return 0

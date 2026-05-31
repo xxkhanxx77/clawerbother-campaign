@@ -5,28 +5,32 @@ This project is a Playwright-only scraper for public Nitter search pages. The ol
 ## Main Files
 
 - `src/renaiss_playwright_scraper.py`: main scraper module.
-- `scripts/run_renaiss.sh`: shortcut script for the default `#renaiss` scrape.
+- `scripts/run_renaiss_headless.sh`: default headless shortcut (rolling 7-day, clean profile).
+- `scripts/run_renaiss.sh`: legacy shortcut — also runs headless with rolling 7-day dates.
 - `scraper_config.example.json`: editable example config.
 - `data/renaiss_posts.csv`: normalized CSV output.
 - `data/renaiss_posts.jsonl`: raw scraped item output.
 - `output/playwright/`: debug screenshots/HTML when scraping fails.
-- `output/playwright-profile/`: persistent Chrome profile used by Playwright.
+- `output/playwright-profile-clean/`: fresh Chrome profile created per run by the default scripts.
 
 ## Default Run
 
-Use the script:
+Use the headless script (rolling 7-day window, deletes and recreates a clean profile):
 
 ```bash
-./scripts/run_renaiss.sh
+./scripts/run_renaiss_headless.sh
 ```
 
-Equivalent manual command:
+Equivalent manual command (replace dates as needed):
 
 ```bash
-python -m src.renaiss_playwright_scraper \
+TODAY="$(date +%d-%m-%Y)"
+SEVEN_DAYS_AGO="$(date -v-7d +%d-%m-%Y)"
+./.venv/bin/python -m src.renaiss_playwright_scraper \
   --query "#renaiss" \
-  --date-from 28-05-2026 \
-  --date-to 20-05-2026
+  --date-from "$TODAY" \
+  --date-to "$SEVEN_DAYS_AGO" \
+  --profile-dir output/playwright-profile-clean
 ```
 
 The scraper runs headless by default. Use `--headed` only when debugging or when a manual browser check is needed.
@@ -39,12 +43,14 @@ The scraper runs headless by default. Use `--headed` only when debugging or when
 4. Each daily URL uses Nitter `since=YYYY-MM-DD` and `until=YYYY-MM-DD` filters.
 5. Playwright launches Google Chrome with a persistent profile.
 6. The scraper opens the first page for the day.
-7. `extract_tweets` runs JavaScript in the page to read `.timeline-item` tweet cards.
-8. Each item is normalized into CSV fields by `normalize_tweet`.
-9. Existing CSV/JSONL outputs are loaded first unless `--fresh` is used.
-10. Duplicate posts are skipped by tweet ID, URL, Nitter URL, or description fallback.
-11. After each page with new data, the scraper checkpoint-saves CSV and JSONL.
-12. `find_next_page_url` follows the Nitter "Load more" link until `--max-pages` is reached or no next page exists.
+7. If no tweets are found, `click_load_newest` tries the "Load newest" button before giving up.
+8. `extract_tweets` runs JavaScript in the page to read `.timeline-item` tweet cards.
+9. Each item is normalized into CSV fields by `normalize_tweet` (includes `score` field).
+10. Existing CSV/JSONL outputs are loaded first unless `--fresh` is used.
+11. Duplicate posts are skipped by tweet ID, URL, Nitter URL, or description fallback.
+12. After each page with new data, the scraper checkpoint-saves CSV and JSONL.
+13. `find_next_page_url` follows the Nitter "Load more" link until `--max-pages` is reached or no next page exists.
+14. After all pages, a per-day summary (matched vs saved) is printed.
 
 ## Output Naming
 
@@ -66,6 +72,7 @@ Use `--output-base` to override this.
 - `--headed`: show Chrome UI.
 - `--manual`: pause for manual browser checks; use with `--headed`.
 - `--instance "https://nitter.net"`: use a different Nitter instance.
+- `--profile-dir output/playwright-profile-clean`: Chrome profile directory (deleted and recreated by the default scripts).
 - `--between-days-seconds`: wait between date searches.
 - `--navigation-retries`: retry count for navigation failures.
 - `--retry-delay-seconds`: wait before retrying after HTTP 429 or another navigation error.
@@ -77,10 +84,13 @@ Nitter often returns HTTP 429. This is not a code bug. The scraper retries and p
 Safer slow command:
 
 ```bash
-python -m src.renaiss_playwright_scraper \
+TODAY="$(date +%d-%m-%Y)"
+SEVEN_DAYS_AGO="$(date -v-7d +%d-%m-%Y)"
+./.venv/bin/python -m src.renaiss_playwright_scraper \
   --query "#renaiss" \
-  --date-from 28-05-2026 \
-  --date-to 20-05-2026 \
+  --date-from "$TODAY" \
+  --date-to "$SEVEN_DAYS_AGO" \
+  --profile-dir output/playwright-profile-clean \
   --between-days-seconds 30 \
   --navigation-retries 5 \
   --retry-delay-seconds 120
