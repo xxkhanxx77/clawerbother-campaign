@@ -730,6 +730,7 @@ def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
                 next_url = find_next_page_url(page)
                 if not next_url:
                     break
+                sleep_with_progress(args.between_days_seconds, "Waiting before next page")
                 if not goto_page(page, next_url, args.navigation_retries, args.retry_delay_seconds):
                     save_debug(page, Path(args.debug_dir))
                     break
