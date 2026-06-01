@@ -348,6 +348,18 @@ def build_date_search_url(base_url: str, day: date) -> str:
     return urlunparse(parsed._replace(path="/search", query=urlencode(query, doseq=True)))
 
 
+def build_range_search_url(base_url: str, since: date, until: date) -> str:
+    parsed = urlparse(base_url)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    query.pop("cursor", None)
+    query["f"] = ["tweets"]
+    query["q"] = query.get("q") or ["#renaiss"]
+    query["since"] = [since.isoformat()]
+    query["until"] = [(until + timedelta(days=1)).isoformat()]
+    query.setdefault("min_faves", [""])
+    return urlunparse(parsed._replace(path="/search", query=urlencode(query, doseq=True)))
+
+
 def build_search_targets(args: argparse.Namespace) -> list[tuple[str, str, date | None, date | None]]:
     if bool(args.date_from) != bool(args.date_to):
         raise ValueError("--date-from and --date-to must be used together.")
@@ -356,10 +368,10 @@ def build_search_targets(args: argparse.Namespace) -> list[tuple[str, str, date 
 
     date_from = parse_input_date(args.date_from)
     date_to = parse_input_date(args.date_to)
-    targets = []
-    for day in inclusive_dates(date_from, date_to):
-        targets.append((day.isoformat(), build_date_search_url(args.url, day), day, day))
-    return targets
+    since = min(date_from, date_to)
+    until = max(date_from, date_to)
+    url = build_range_search_url(args.url, since, until)
+    return [(f"{since.isoformat()}..{until.isoformat()}", url, since, until)]
 
 
 def load_existing_outputs(output_dir: Path, output_base: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]], set[str]]:
@@ -680,8 +692,6 @@ def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
                         break
 
                 page_new_rows_before = new_rows_count
-                page_items_total = len(page_items)
-                page_items_matched = 0
                 for item in page_items:
                     created_date = parse_created_date(item.get("created_at"))
                     if oldest_date and created_date and created_date < oldest_date:
@@ -690,7 +700,10 @@ def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
                     if target_start and target_end and created_date and not (target_start <= created_date <= target_end):
                         continue
 
-                    page_items_matched += 1
+                    if created_date:
+                        day_key = created_date.isoformat()
+                        per_day_summary.setdefault(day_key, {"matched": 0, "saved": 0})["matched"] += 1
+
                     key = item_key(item)
                     if not key or key in seen:
                         continue
@@ -698,14 +711,10 @@ def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
                     raw_items.append(item)
                     rows.append(normalize_tweet(item))
                     new_rows_count += 1
+                    if created_date:
+                        per_day_summary[created_date.isoformat()]["saved"] += 1
                     if new_rows_count >= args.number:
                         break
-
-                if label != "single" and target_start and target_end:
-                    target_label = format_day_label(target_start)
-                    summary = per_day_summary.setdefault(target_label, {"matched": 0, "saved": 0})
-                    summary["matched"] += page_items_matched
-                    summary["saved"] += new_rows_count - page_new_rows_before
 
                 print_progress(label, page_number, page.url, new_rows_count)
                 if new_rows_count > page_new_rows_before:
