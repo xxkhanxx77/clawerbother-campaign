@@ -16,8 +16,8 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError, sync_playwright
 
 
-DEFAULT_SEARCH_URL = "https://nitter.net/search?f=tweets&q=%23renaiss&since=&until=&min_faves="
-DEFAULT_INSTANCE = "https://nitter.net"
+DEFAULT_SEARCH_URL = "https://nitter.privacyredirect.com/search?f=tweets&q=%23renaiss&since=&until=&min_faves="
+DEFAULT_INSTANCE = "https://nitter.privacyredirect.com"
 DEFAULT_QUERY = "#renaiss"
 DEFAULT_CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 FIELDNAMES = [
@@ -53,7 +53,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--instance",
-        help="Nitter instance base URL. Default: https://nitter.net.",
+        help="Nitter instance base URL. Default: https://nitter.privacyredirect.com.",
     )
     parser.add_argument("--url", help="Advanced: full Nitter search URL or cursor URL.")
     parser.add_argument("--number", type=int, help="Maximum new posts to save.")
@@ -455,13 +455,33 @@ def extract_tweets(page: Page) -> list[dict[str, Any]]:
     )
 
 
-def find_next_page_url(page: Page) -> str:
+def merge_missing_search_params(next_url: str, source_urls: list[str]) -> str:
+    parsed_next = urlparse(next_url)
+    next_query = parse_qs(parsed_next.query, keep_blank_values=True)
+    preserved_params = ("f", "q", "since", "until", "min_faves")
+
+    for source_url in source_urls:
+        source_query = parse_qs(urlparse(source_url).query, keep_blank_values=True)
+        for param in preserved_params:
+            if param not in next_query and param in source_query:
+                next_query[param] = source_query[param]
+
+    return urlunparse(parsed_next._replace(query=urlencode(next_query, doseq=True)))
+
+
+def find_next_page_url(page: Page, search_url: str = "") -> str:
     try:
         href = page.evaluate(
             """
             () => {
               const links = Array.from(document.querySelectorAll("div.show-more a"));
-              const link = links.at(-1);
+              const link = links
+                .reverse()
+                .find((candidate) => {
+                  const href = candidate.getAttribute("href") || "";
+                  const text = candidate.innerText.trim().toLowerCase();
+                  return href.includes("cursor=") || text.includes("load more");
+                });
               return link ? link.getAttribute("href") : "";
             }
             """
@@ -472,6 +492,7 @@ def find_next_page_url(page: Page) -> str:
     if not href:
         return ""
     absolute = urljoin(page.url, href)
+    absolute = merge_missing_search_params(absolute, [page.url, search_url])
     if "cursor=" not in absolute:
         parsed = urlparse(absolute)
         if parsed.path != "/search":
@@ -576,11 +597,26 @@ def goto_page(page: Page, url: str, retries: int, retry_delay_seconds: float) ->
     return False
 
 
-def print_progress(label: str, page_number: int, url: str, found: int, total: int) -> None:
+def print_progress(
+    label: str,
+    page_number: int,
+    url: str,
+    found: int,
+    matched: int,
+    saved: int,
+    duplicates: int,
+    skipped: int,
+    total: int,
+) -> None:
     parsed = urlparse(url)
     prefix = f"{label} " if label != "single" else ""
     status = f"found {found}" if found else "no tweets"
-    print(f"{prefix}page {page_number}: {parsed.netloc}{parsed.path} -> {status}, {total} total new saved", flush=True)
+    print(
+        f"{prefix}page {page_number}: {parsed.netloc}{parsed.path} -> "
+        f"{status}, {matched} matched, +{saved} saved, "
+        f"{duplicates} duplicates, {skipped} skipped, {total} total new saved",
+        flush=True,
+    )
 
 
 def format_day_label(day: date | None) -> str:
@@ -695,37 +731,56 @@ def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
                         break
 
                 page_new_rows_before = new_rows_count
+                page_matched_count = 0
+                page_saved_count = 0
+                page_duplicate_count = 0
+                page_skipped_count = 0
                 for item in page_items:
                     created_date = parse_created_date(item.get("created_at"))
                     if oldest_date and created_date and created_date < oldest_date:
                         reached_older_than_oldest_date = True
+                        page_skipped_count += 1
                         continue
                     if target_start and target_end and created_date and not (target_start <= created_date <= target_end):
+                        page_skipped_count += 1
                         continue
 
                     if created_date:
                         day_key = created_date.isoformat()
                         per_day_summary.setdefault(day_key, {"matched": 0, "saved": 0})["matched"] += 1
+                        page_matched_count += 1
 
                     key = item_key(item)
                     if not key or key in seen:
+                        page_duplicate_count += 1
                         continue
                     seen.add(str(key))
                     raw_items.append(item)
                     rows.append(normalize_tweet(item))
                     new_rows_count += 1
+                    page_saved_count += 1
                     if created_date:
                         per_day_summary[created_date.isoformat()]["saved"] += 1
                     if new_rows_count >= args.number:
                         break
 
-                print_progress(label, page_number, page.url, len(page_items), new_rows_count)
+                print_progress(
+                    label,
+                    page_number,
+                    page.url,
+                    len(page_items),
+                    page_matched_count,
+                    page_saved_count,
+                    page_duplicate_count,
+                    page_skipped_count,
+                    new_rows_count,
+                )
                 if new_rows_count > page_new_rows_before:
                     save_checkpoint(output_dir, args.output_base, rows, raw_items)
                 if new_rows_count >= args.number or reached_older_than_oldest_date:
                     break
 
-                next_url = find_next_page_url(page)
+                next_url = find_next_page_url(page, url)
                 if not next_url:
                     break
                 sleep_with_progress(args.between_days_seconds, "Waiting before next page")

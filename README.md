@@ -5,8 +5,9 @@ Scrapes public Nitter search results for `#renaiss` with Playwright and saves th
 The scraper:
 
 - runs Chrome in hidden/headless mode by default
+- uses `https://nitter.privacyredirect.com` as the default Nitter instance
 - searches one day at a time across the date range (one navigation per day, gentler on Nitter rate limits)
-- follows Nitter "Load more" pages, waiting between pages and retrying empty/blank responses
+- follows Nitter "Load more" cursor pages while preserving the active search/date filters
 - spoofs the user-agent and hides `navigator.webdriver` to reduce bot detection
 - appends to existing output files
 - skips duplicate tweet IDs automatically
@@ -145,6 +146,22 @@ python -m src.renaiss_playwright_scraper \
   --date-from 31-05-2026 \
   --date-to 27-05-2026
 ```
+
+The default instance is `https://nitter.privacyredirect.com`.
+
+## Progress Output
+
+Each page prints both extraction and save counters:
+
+```text
+2026-05-17 page 2: nitter.privacyredirect.com/search -> found 8, 8 matched, +0 saved, 8 duplicates, 0 skipped, 8 total new saved
+```
+
+- `found`: tweet cards extracted from the current page.
+- `matched`: found tweets that match the active date/search filters.
+- `+N saved`: new unique tweet IDs written from this page.
+- `duplicates`: tweets already present in existing output or earlier pages.
+- `skipped`: tweets outside the active date range or older than `--oldest-date`.
 
 ## Config File
 

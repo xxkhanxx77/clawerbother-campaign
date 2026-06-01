@@ -72,7 +72,7 @@ Use `--output-base` to override this.
 - `--fresh`: overwrite existing output instead of append/dedupe.
 - `--headed`: show Chrome UI.
 - `--manual`: pause for manual browser checks; use with `--headed`.
-- `--instance "https://nitter.net"`: use a different Nitter instance.
+- `--instance "https://nitter.privacyredirect.com"`: use a different Nitter instance.
 - `--profile-dir output/playwright-profile-clean`: Chrome profile directory (deleted and recreated by the default scripts).
 - `--between-days-seconds`: wait between date searches.
 - `--navigation-retries`: retry count for navigation failures.

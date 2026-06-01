@@ -114,7 +114,7 @@ raw_stats, pictures, score
 
 ## Important Defaults
 
-- `instance`: `https://nitter.net`
+- `instance`: `https://nitter.privacyredirect.com`
 - `query`: `#renaiss`
 - `number`: `1000`
 - `output_dir`: `data`
