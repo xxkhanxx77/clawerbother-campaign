@@ -574,6 +574,10 @@ def goto_page(page: Page, url: str, retries: int, retry_delay_seconds: float) ->
     for attempt in range(1, retries + 2):
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+            page.wait_for_timeout(800)
+            body_html: str = page.evaluate("() => document.body ? document.body.innerHTML : ''")
+            if not body_html.strip():
+                raise PlaywrightError("blank page (bot detection or server error)")
             return True
         except PlaywrightError as exc:
             print(f"Navigation warning ({attempt}/{retries + 1}): {exc}", file=sys.stderr, flush=True)
@@ -584,10 +588,11 @@ def goto_page(page: Page, url: str, retries: int, retry_delay_seconds: float) ->
     return False
 
 
-def print_progress(label: str, page_number: int, url: str, total: int) -> None:
+def print_progress(label: str, page_number: int, url: str, found: int, total: int) -> None:
     parsed = urlparse(url)
     prefix = f"{label} " if label != "single" else ""
-    print(f"{prefix}page {page_number}: {parsed.netloc}{parsed.path} -> {total} new saved", flush=True)
+    status = f"found {found}" if found else "blank page"
+    print(f"{prefix}page {page_number}: {parsed.netloc}{parsed.path} -> {status}, {total} total new saved", flush=True)
 
 
 def format_day_label(day: date | None) -> str:
@@ -716,7 +721,7 @@ def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
                     if new_rows_count >= args.number:
                         break
 
-                print_progress(label, page_number, page.url, new_rows_count)
+                print_progress(label, page_number, page.url, len(page_items), new_rows_count)
                 if new_rows_count > page_new_rows_before:
                     save_checkpoint(output_dir, args.output_base, rows, raw_items)
                 if new_rows_count >= args.number or reached_older_than_oldest_date:
