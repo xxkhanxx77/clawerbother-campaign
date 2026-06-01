@@ -13,7 +13,7 @@ fi
 
 PROFILE_DIR="output/playwright-profile-clean"
 TODAY="$(date +%d-%m-%Y)"
-SEVEN_DAYS_AGO="$(date -v-7d +%d-%m-%Y)"
+SEVEN_DAYS_AGO="$(date -v-30d +%d-%m-%Y)"
 rm -rf "$PROFILE_DIR"
 
 exec ./.venv/bin/python -m src.renaiss_playwright_scraper \

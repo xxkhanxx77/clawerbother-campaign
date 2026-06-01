@@ -5,8 +5,9 @@ Scrapes public Nitter search results for `#renaiss` with Playwright and saves th
 The scraper:
 
 - runs Chrome in hidden/headless mode by default
-- searches one day at a time across the date range
-- follows Nitter "Load more" pages
+- searches one day at a time across the date range (one navigation per day, gentler on Nitter rate limits)
+- follows Nitter "Load more" pages, waiting between pages and retrying empty/blank responses
+- spoofs the user-agent and hides `navigator.webdriver` to reduce bot detection
 - appends to existing output files
 - skips duplicate tweet IDs automatically
 

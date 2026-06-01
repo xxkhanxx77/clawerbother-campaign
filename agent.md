@@ -46,18 +46,18 @@ python -m src.renaiss_playwright_scraper --config scraper_config.json
 4. `build_search_url` builds a base Nitter search URL from `--instance` and `--query`.
 5. `parse_input_date` accepts `DD-MM-YYYY`, `YYYY-MM-DD`, `DD/MM/YYYY`, or `YYYY/MM/DD`.
 6. `inclusive_dates` creates all dates between `--date-from` and `--date-to`.
-7. `build_date_search_url` adds daily `since` and `until` filters, always enforcing `/search` path.
-8. `scrape` launches persistent Chrome through Playwright.
-9. `goto_page` handles navigation retries and HTTP 429 waits.
-10. `wait_for_page` waits for tweet cards, error panel, or body.
+7. `build_date_search_url` adds daily `since` and `until` filters, always enforcing `/search` path. The scraper does one navigation per day (it does NOT build one giant range query — per-day navigation is gentler on Nitter rate limits).
+8. `scrape` launches persistent Chrome through Playwright with a spoofed user-agent and `navigator.webdriver` removed.
+9. `goto_page` handles navigation retries, HTTP 429 waits, and treats a blank/empty page body as a retryable failure.
+10. `wait_for_page` waits for `.timeline-item`, `.error-panel`, `.timeline-none`, or `.search-result` (no bare `body`, which used to match before content loaded).
 11. `click_load_newest` clicks the "Load newest" button if the first page loads with no tweets.
 12. `extract_tweets` reads tweet data from Nitter DOM nodes.
 13. `normalize_tweet` converts raw items into CSV rows (includes `score` field).
 14. `load_existing_outputs` loads old CSV/JSONL rows unless `--fresh` is set; backfills missing `score`.
 15. `item_key` dedupes by tweet ID, URL, Nitter URL, or description fallback.
 16. `save_checkpoint` writes CSV/JSONL after each page with new rows.
-17. `find_next_page_url` follows Nitter "Load more" links up to `--max-pages`; enforces `/search` path.
-18. `print_summary` prints a per-day table of matched vs saved items after the run.
+17. `find_next_page_url` follows Nitter "Load more" links up to `--max-pages`; enforces `/search` path. The scraper waits `--between-days-seconds` before each "Load more", and reloads a later page once (after `--retry-delay-seconds`) if it comes back empty.
+18. `print_summary` prints a per-day table of matched vs saved items, keyed by each tweet's own `created_at` date.
 
 ## Browser Behavior
 
@@ -156,6 +156,7 @@ If that still fails, wait or change `--instance`.
 - Keep external dependencies minimal; currently only Playwright is required.
 - If changing extraction selectors, test against a live Nitter page or saved debug HTML.
 - If changing date behavior, preserve inclusive date ranges.
+- Keep per-day navigation (one search URL per day). Do not collapse the date range into a single `since..until` query — per-day navigation is the intended, rate-limit-friendly behavior.
 - If adding run shortcuts, prefer scripts in `scripts/`.
 
 ## Quick Checks

@@ -39,18 +39,19 @@ The scraper runs headless by default. Use `--headed` only when debugging or when
 
 1. CLI args and optional JSON config are merged in `resolve_args`.
 2. The query is converted into a Nitter search URL with `build_search_url`.
-3. If `--date-from` and `--date-to` are provided, `build_search_targets` creates one search URL per day.
+3. If `--date-from` and `--date-to` are provided, `build_search_targets` creates one search URL per day (one navigation per day, which is gentler on Nitter rate limits than one giant range query).
 4. Each daily URL uses Nitter `since=YYYY-MM-DD` and `until=YYYY-MM-DD` filters.
-5. Playwright launches Google Chrome with a persistent profile.
-6. The scraper opens the first page for the day.
+5. Playwright launches Google Chrome with a persistent profile, a spoofed user-agent, and `navigator.webdriver` removed to reduce bot detection.
+6. The scraper opens the first page for the day. `goto_page` retries blank/empty responses (common bot-detection or HTTP 429 pages).
 7. If no tweets are found, `click_load_newest` tries the "Load newest" button before giving up.
 8. `extract_tweets` runs JavaScript in the page to read `.timeline-item` tweet cards.
 9. Each item is normalized into CSV fields by `normalize_tweet` (includes `score` field).
 10. Existing CSV/JSONL outputs are loaded first unless `--fresh` is used.
 11. Duplicate posts are skipped by tweet ID, URL, Nitter URL, or description fallback.
 12. After each page with new data, the scraper checkpoint-saves CSV and JSONL.
-13. `find_next_page_url` follows the Nitter "Load more" link until `--max-pages` is reached or no next page exists.
-14. After all pages, a per-day summary (matched vs saved) is printed.
+13. `find_next_page_url` follows the Nitter "Load more" link until `--max-pages` is reached or no next page exists. The scraper waits `--between-days-seconds` before each "Load more" navigation, and if a later page comes back empty it waits `--retry-delay-seconds` and reloads it once.
+14. After each day, the scraper waits `--between-days-seconds` before the next day.
+15. After all days, a per-day summary (matched vs saved, keyed by each tweet's own date) is printed.
 
 ## Output Naming
 
