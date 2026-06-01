@@ -531,7 +531,10 @@ def wait_for_page(page: Page, seconds: float) -> bool:
     try:
         page.wait_for_load_state("domcontentloaded", timeout=30_000)
         try:
-            page.wait_for_selector(".timeline-item, .error-panel, body", timeout=30_000)
+            page.wait_for_selector(
+                ".timeline-item, .error-panel, .timeline-none, .search-result",
+                timeout=30_000,
+            )
         except PlaywrightTimeoutError:
             pass
         page.wait_for_timeout(int(seconds * 1000))
@@ -606,9 +609,22 @@ def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
             executable_path=str(chrome_path),
             headless=args.headless,
             viewport={"width": 1440, "height": 1100},
-            args=["--disable-blink-features=AutomationControlled"],
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/136.0.0.0 Safari/537.36"
+            ),
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-dev-shm-usage",
+                "--no-first-run",
+                "--no-default-browser-check",
+            ],
         )
         page = context.pages[0] if context.pages else context.new_page()
+        page.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
 
         for target_index, (label, url, target_start, target_end) in enumerate(targets, 1):
             if new_rows_count >= args.number or reached_older_than_oldest_date:
