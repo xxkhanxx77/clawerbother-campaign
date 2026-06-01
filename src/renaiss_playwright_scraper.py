@@ -591,7 +591,7 @@ def goto_page(page: Page, url: str, retries: int, retry_delay_seconds: float) ->
 def print_progress(label: str, page_number: int, url: str, found: int, total: int) -> None:
     parsed = urlparse(url)
     prefix = f"{label} " if label != "single" else ""
-    status = f"found {found}" if found else "blank page"
+    status = f"found {found}" if found else "no tweets"
     print(f"{prefix}page {page_number}: {parsed.netloc}{parsed.path} -> {status}, {total} total new saved", flush=True)
 
 
@@ -675,6 +675,16 @@ def scrape(args: argparse.Namespace) -> tuple[list[dict[str, Any]], list[dict[st
                             print(f"Extract warning: {exc}", file=sys.stderr, flush=True)
                             save_debug(page, Path(args.debug_dir))
                             break
+
+                if not page_items and page_number > 1:
+                    retry_url = page.url
+                    sleep_with_progress(args.retry_delay_seconds, "No tweets on page, retrying after delay")
+                    if goto_page(page, retry_url, 1, args.retry_delay_seconds):
+                        if wait_for_page(page, args.wait_seconds):
+                            try:
+                                page_items = extract_tweets(page)
+                            except PlaywrightError as exc:
+                                print(f"Extract warning: {exc}", file=sys.stderr, flush=True)
 
                 if not page_items and args.manual and not args.headless:
                     print(
